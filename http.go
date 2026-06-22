@@ -28,11 +28,17 @@ func NewHandler(g *Gateway, opt HandlerOptions) http.Handler {
 	if opt.MaxBodyBytes <= 0 {
 		opt.MaxBodyBytes = 25 * 1024 * 1024
 	}
-	base := opt.BasePath
-	if base == "" {
+	// BasePath: unset → "/v1"; "/" (or "") after trimming → root (so /llm, not
+	// //llm); anything else → "/" + cleaned segment(s).
+	var base string
+	switch {
+	case opt.BasePath == "":
 		base = "/v1"
+	case strings.Trim(opt.BasePath, "/") == "":
+		base = "" // root mount
+	default:
+		base = "/" + strings.Trim(opt.BasePath, "/")
 	}
-	base = "/" + strings.Trim(base, "/")
 	llmPath := base + "/llm"
 	batchPath := base + "/llm/batch"
 

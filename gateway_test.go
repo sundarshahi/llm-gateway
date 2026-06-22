@@ -197,6 +197,28 @@ func TestHTTPHandler(t *testing.T) {
 	}
 }
 
+func TestHTTPHandler_BasePaths(t *testing.T) {
+	g := newGW(t, newFake("echo", false, "ok"), Config{})
+	cases := []struct {
+		base, path string
+		want       int
+	}{
+		{"", "/v1/llm", 200}, // default → /v1
+		{"/", "/llm", 200},   // root mount (the regression: must NOT be //llm)
+		{"", "/llm", 404},    // /llm absent under default base
+		{"/api/v2", "/api/v2/llm", 200},
+	}
+	for _, c := range cases {
+		h := NewHandler(g, HandlerOptions{BasePath: c.base})
+		req := httptest.NewRequest(http.MethodPost, c.path, strings.NewReader(`{"model":"echo","prompt":"x"}`))
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != c.want {
+			t.Fatalf("base=%q path=%q: want %d, got %d", c.base, c.path, c.want, rr.Code)
+		}
+	}
+}
+
 // staticPrompts is a trivial in-memory PromptStore for tests.
 type staticPrompts map[string]string
 
