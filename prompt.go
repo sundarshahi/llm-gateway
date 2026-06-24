@@ -36,9 +36,9 @@ func ValidPromptName(name string) bool { return promptNameRe.MatchString(name) }
 type FilePromptStore struct {
 	Dir            string
 	SchemaDir      string
-	AddendumDir    string // "" disables the addendum merge
-	AddendumHeader string // prepended above the addendum body when non-empty
-	PreambleFile   string               // path to an .md file prepended to every matching stage prompt; "" disables
+	AddendumDir    string                 // "" disables the addendum merge
+	AddendumHeader string                 // prepended above the addendum body when non-empty
+	PreambleFile   string                 // path to an .md file prepended to every matching stage prompt; "" disables
 	PreambleFilter func(name string) bool // nil = apply to all stages; return false to skip a specific stage
 
 	mu           sync.RWMutex
