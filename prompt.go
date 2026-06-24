@@ -38,10 +38,14 @@ type FilePromptStore struct {
 	SchemaDir      string
 	AddendumDir    string // "" disables the addendum merge
 	AddendumHeader string // prepended above the addendum body when non-empty
+	PreambleFile   string               // path to an .md file prepended to every matching stage prompt; "" disables
+	PreambleFilter func(name string) bool // nil = apply to all stages; return false to skip a specific stage
 
-	mu          sync.RWMutex
-	promptCache map[string]string
-	schemaCache map[string]string
+	mu           sync.RWMutex
+	promptCache  map[string]string
+	schemaCache  map[string]string
+	preambleOnce sync.Once
+	preambleText string
 }
 
 // NewFilePromptStore builds a store. SchemaDir/AddendumDir may be empty to
@@ -82,10 +86,25 @@ func (s *FilePromptStore) Prompt(name string) (string, error) {
 			}
 		}
 	}
+	if pre := s.loadPreamble(); pre != "" && (s.PreambleFilter == nil || s.PreambleFilter(name)) {
+		txt = pre + "\n\n" + txt
+	}
 	s.mu.Lock()
 	s.promptCache[name] = txt
 	s.mu.Unlock()
 	return txt, nil
+}
+
+func (s *FilePromptStore) loadPreamble() string {
+	if s.PreambleFile == "" {
+		return ""
+	}
+	s.preambleOnce.Do(func() {
+		if b, err := os.ReadFile(s.PreambleFile); err == nil {
+			s.preambleText = strings.TrimSpace(string(b))
+		}
+	})
+	return s.preambleText
 }
 
 func (s *FilePromptStore) Schema(name string) string {
