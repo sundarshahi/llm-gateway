@@ -114,6 +114,12 @@ func (g *Gateway) Run(ctx context.Context, j Job) Result {
 		if err != nil {
 			g.log.Error("cli failed", "stage", labelOf(j), "model", orDefault(r.modelName),
 				"ms", nowMS(ta), "attempt", attempt, "of", maxAttempts, "err", err.Error())
+			// Usage/rate limits can't clear by retrying — return a 429 immediately
+			// so the caller (n8n) sees the real cause instead of a generic 502.
+			if errors.Is(err, errCLIUsageLimit) {
+				g.observe(j, r, nowMS(t0), Event{Attempts: attempt, OK: false})
+				return errResult(429, j.Model, err.Error())
+			}
 			last = errResult(502, j.Model, err.Error())
 			if errors.Is(err, errCLITimeout) || ctx.Err() != nil || attempt == maxAttempts {
 				g.observe(j, r, nowMS(t0), Event{Attempts: attempt, OK: false})

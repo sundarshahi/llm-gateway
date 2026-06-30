@@ -15,6 +15,33 @@ import (
 // it (re-running a timeout just burns another full Timeout).
 var errCLITimeout = errors.New("cli timeout")
 
+// errCLIUsageLimit marks a spawn that failed because the provider account hit a
+// usage/rate limit. Retrying can't succeed until the limit resets, so the retry
+// loop returns immediately with a 429 instead of burning attempts on a 502.
+var errCLIUsageLimit = errors.New("cli usage limit")
+
+// usageLimitMarkers are substrings the CLIs print (to stdout) when an account is
+// out of quota. Matched case-insensitively against combined CLI output.
+var usageLimitMarkers = []string{
+	"weekly limit",
+	"usage limit",
+	"rate limit",
+	"hit your limit",
+	"reached your",
+	"quota",
+	"too many requests",
+}
+
+func isUsageLimit(s string) bool {
+	l := strings.ToLower(s)
+	for _, m := range usageLimitMarkers {
+		if strings.Contains(l, m) {
+			return true
+		}
+	}
+	return false
+}
+
 // runCLI acquires a concurrency slot, then spawns the provider's command. The
 // parent ctx is honored: if the caller (e.g. a disconnected HTTP client) cancels
 // it, the spawn is killed and the slot freed. A per-spawn timeout is layered on
@@ -57,11 +84,21 @@ func (g *Gateway) spawn(ctx context.Context, p Provider, r SpawnRequest) (string
 	}
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
-			stderr := strings.TrimSpace(errb.String())
-			if stderr == "" {
-				stderr = "(no stderr)"
+			// The Claude/Gemini CLIs print fatal messages (e.g. "You've hit your
+			// weekly limit") to stdout, not stderr. Fall back to stdout so the real
+			// cause surfaces in logs and the HTTP error instead of "(no stderr)".
+			detail := strings.TrimSpace(errb.String())
+			if detail == "" {
+				detail = strings.TrimSpace(out.String())
 			}
-			return "", fmt.Errorf("%s exited %d: %s", inv.Cmd, ee.ExitCode(), stderr)
+			if detail == "" {
+				detail = "(no output)"
+			}
+			wrapped := fmt.Errorf("%s exited %d: %s", inv.Cmd, ee.ExitCode(), detail)
+			if isUsageLimit(detail) {
+				return "", fmt.Errorf("%w: %w", errCLIUsageLimit, wrapped)
+			}
+			return "", wrapped
 		}
 		return "", fmt.Errorf("failed to spawn %s: %s (installed + on PATH + authenticated?)", inv.Cmd, err.Error())
 	}
